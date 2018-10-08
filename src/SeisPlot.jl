@@ -26,6 +26,7 @@ const DECIMATE = Ref(true)
 
 """
     plot(traces::AbstractArray{<:Seis.Trace}; kwargs...) -> ::Plots.Plot
+    plot(trace::AbstractTrace; kwargs...) -> ::Plots.Plot
 
 Plot a set of traces as a set of separate wiggles.
 
@@ -37,7 +38,8 @@ Additional options provided:
 plot
 
 # Recipe defining the above
-@recipe function f(t::AbstractArray{<:Trace}; picks=true)
+@recipe function f(t::Union{Seis.AbstractTrace,AbstractArray{<:Trace}}; picks=true)
+    t isa AbstractArray || (t = [t])
     ntraces = length(t)
     layout --> (ntraces, 1)
     # Plotting defaults
@@ -200,7 +202,7 @@ end
 
 """
     decimation_value(t::AbstractArray{<:Trace}, shifts, t1, t2, max_samples) -> n
-    
+
 Return the decimation value `n` which ensures that no more than `max_samples`
 are contained within the time window `t1`-`t2` s relative to the values in `shifts`.
 """
