@@ -10,8 +10,19 @@ and [`Plots`](https://github.com/JuliaPlots/Plots.jl)
 Calling `plot` with either a single `Seis.Trace` or array of traces will produce
 a set of plots, one for each trace.
 
+    plot(traces::AbstractArray{<:Seis.Trace}; kwargs...) -> ::Plots.Plot
+    plot(trace::AbstractTrace; kwargs...) -> ::Plots.Plot
+
+Plot a set of traces as a set of separate wiggles.
+
+Additional options provided:
+
+- `ylims`=`:all`: All traces have same amplitude limits
+- `picks`: If `false`, do not plot picks.
+
 ### `section`
-This produces a record section of an array of traces.
+This produces a record section of an array of traces.  See documentation
+for `section` for full details.
 """
 module SeisPlot
 
@@ -33,31 +44,69 @@ Plot a set of traces as a set of separate wiggles.
 Additional options provided:
 
 - `ylims`=`:all`: All traces have same amplitude limits
-- `picks`: If `false`, do not plot picks.
+- `label`: Set to label for each trace.
+- `pick`: If `false`, do not plot picks.
+- `sort`: Sort the traces according to one of the following:
+  - `:dist`: Epicentral distance
+  - `:alpha`: Alphanumerically by channel code
+  - `::AbstractVector`: According to the indices in a vector passed in, e.g. from
+    a call to `sortperm`.
 """
 plot
 
 # Recipe defining the above
-@recipe function f(t::Union{Seis.AbstractTrace,AbstractArray{<:Trace}}; picks=true)
+@recipe function f(t::Union{Seis.AbstractTrace,AbstractArray{<:Trace}};
+        pick=true, sort=nothing)
+
+    # Make single trace into a vector
     t isa AbstractArray || (t = [t])
     ntraces = length(t)
-    layout --> (ntraces, 1)
+
+    # Trace ordering
+    sort_indices = if sort isa Symbol
+        if sort == :alpha
+            sortperm(Seis.channel_code.(t))
+        elseif sort == :dist
+            sortperm(distance_deg.(t))
+        else
+            throw(ArgumentError("Value of `sort` ($sort) not recognised"))
+        end
+    elseif sort isa AbstractArray
+        length(sort) == ntraces || throw(ArgumentError("Length of `sort` " *
+            "($(length(sort))) is not number of traces ($ntraces)"))
+        vec(sort)
+    elseif sort === nothing
+        1:ntraces
+    else
+        throw(ArgumentError("Value of `sort` ($sort) not recognised"))
+    end
+    t = t[sort_indices] # Traces now in correct order
+
     # Plotting defaults
+    layout --> (ntraces, 1)
     legend --> false
     framestyle --> :box
     grid --> false
     linecolor --> :black
     linewidth --> 1
+
     # Set amplitude limits
     if get(plotattributes, :ylims, nothing) == :all
         plotattributes[:ylims] = extrema(vcat(trace.(t)...))
     end
+
     # Time limits
-    if !haskey(plotattributes, :xlims)
-        xlims = (minimum(first.(times.(t))), maximum(last.(times.(t))))
-    else
-        xlims = plotattributes[:xlims]
+    xlims = get!(plotattributes, :xlims,
+        (minimum(first.(times.(t))), maximum(last.(times.(t)))))
+
+    # Amplitude limits for all traces
+    t′ = cut.(t, xlims...)
+    if get(plotattributes, :ylims, nothing) == :all
+        xmin, xmax, ymin, ymax = trace_limits(t′)
+        plotattributes[:ylims] = (ymin, ymax)
     end
+    all_ylims = [get(plotattributes, :ylims, extrema(trace(tt))) for tt in t′]
+
     # Plot traces
     for i in eachindex(t)
         @series begin
@@ -67,8 +116,22 @@ plot
         end
     end
 
+    # Labels
+    get!(plotattributes, :label, Seis.channel_code.(t))
+    annot_params = (9, :black, :top, :right)
+    markerstrokealpha := 0.0
+    markeralpha := 0.0
+    for i in eachindex(t)
+        @series begin
+            seriestype := :scatter
+            subplot := i
+            series_annotations := [Main.Plots.text(plotattributes[:label][i], annot_params...)]
+            [xlims[end] - 0.007(xlims[end] - xlims[1])], [all_ylims[i][end]]
+        end
+    end
+
     # Picks
-    if picks
+    if pick
         # Pick lines
         seriestype := :vline
         linecolor := :blue
@@ -128,12 +191,15 @@ Additional options provided via keyword arguments:
 - `max_samples`: Control the maximum number of samples to display at one time
            in order to make plotting quicker.  Set `decimate` to `false` to turn
            this off.
+- `pick`:  If `true`, add marks on the record section for each pick in the trace
+           headers.
 """
 section
 
 @userplot Section
 
-@recipe function f(sec::Section; align=nothing, decimate=DECIMATE[], max_samples=MAX_SAMPLES)
+@recipe function f(sec::Section; align=nothing, decimate=DECIMATE[], max_samples=MAX_SAMPLES,
+        pick=false)
     # Arguments
     t = sec.args[1]
     y_values = if length(sec.args) >= 2
@@ -194,9 +260,35 @@ section
     time = [times(tt)[1:ndecimate:end] .- shift for (tt,shift) in zip(t, shifts)]
     maxval = maximum([maximum(abs.(tt)) for tt in trace.(t)])
     traces = [(trace(tt)./maxval .+ y)[1:ndecimate:end] for (tt, y) in zip(t, y_shifts)]
+    # Time limits of plot
+    xlims = get!(plotattributes, :xlim, (minimum(first.(time)), maximum(last.(time))))
+
     # Plot
     @series begin
         time, traces
+    end
+
+    # Picks
+    ptime, py, names = Float64[], Float64[], String[]
+    for (i, tt) in enumerate(t)
+        ps = picks(tt)
+        for (time, name) in ps
+            xlims[1] <= time <= xlims[end] || continue
+            push!(ptime, time - shifts[i])
+            push!(py, y_shifts[i])
+            push!(names, coalesce(name, ""))
+        end
+    end
+    seriestype := :scatter
+    markersize := 3
+    markershape := :utriangle
+    markercolor := :blue
+    markerstrokealpha := 0.0
+    primary := false
+    annotation_params = (8, :center, :bottom, :blue)
+    @series begin
+        series_annotations := Main.Plots.text.(names, annotation_params...)
+        ptime, py
     end
 end
 
@@ -222,5 +314,21 @@ Return the number of points `np` between `t1` and `t2` seconds relative to the
 origin time of the trace `t`.
 """
 num_points(t::Trace, t1, t2) = sum(t1 .<= times(t) .<= t2)
+
+"""
+    traces_limits(t::AbstractArray{<:Trace}, shifts=zeros(length(t))) -> tmin, tmax, ymin, ymax
+
+Return the extreme values of time and amplitude of all of the traces `t`, in an
+inefficient manner.
+"""
+function traces_limits(t::AbstractArray{<:Trace},
+        shifts=zeros(promote_type(eltype.(t.t)...), length(t)))
+    all_times = [times(tt) .+ shift for (tt, shift) in zip(t, shifts)]
+    tmin = minimum(first.(all_times))
+    tmax = maximum(last.(all_times))
+    ymin = minimum(minimum.(trace.(t)))
+    ymax = maximum(maximum.(trace.(t)))
+    tmin, tmax, ymin, ymax
+end
 
 end # module
