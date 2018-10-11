@@ -138,6 +138,7 @@ plot
         linewidth --> 1
         annot_params = (10, :blue, :left, :bottom)
         for i in eachindex(t)
+            length(picks(t[i])) == 0 && continue
             @series begin
                 xticks --> (i < ntraces ? nothing : :auto)
                 guidefontcolor := :blue
@@ -154,6 +155,7 @@ plot
         primary := false
         annotation_params = (8, :left, :bottom, :blue)
         for i in eachindex(t)
+            length(picks(t[i])) == 0 && continue
             @series begin
                 xticks --> (i < ntraces ? nothing : :auto)
                 subplot := i
