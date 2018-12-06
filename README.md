@@ -1,4 +1,7 @@
 # SeisPlot
 
-Plot seismograms using [Seis.jl](https://github.com/anowacki/Seis.jl) with [Julia](https://julialang.org) and [Plots.jl](https://github.com/JuliaPlots/Plots.jl)
+This package is now deprecated in favour of plotting within
+[Seis.jl](https://github.com/anowacki/Seis.jl)'s `Seis.Plot` module.
+All previous functionality now exists there.
 
+No further development of SeisPlot will take place.

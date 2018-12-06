@@ -26,6 +26,9 @@ for `section` for full details.
 """
 module SeisPlot
 
+__init__() = @warn("This module is no longer supported; `SeisPlot`'s functionality " *
+    "is now available within `Seis` by doing `using Plots, Seis.Plot`")
+
 using RecipesBase
 using Seis
 
